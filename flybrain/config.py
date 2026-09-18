@@ -1,4 +1,4 @@
-"""Paths and constants shared by the pipeline (see CLAUDE.md for the model contract)."""
+"""Paths and constants shared by the pipeline (see docs/model-contract.md)."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +45,8 @@ THETA_SAT_DEG = 90.0
 THETADOT_SAT_DPS = 1000.0
 LABEL_ONSET_DEG = 15.0
 FRONT_HALF_WIDTH_DEG = 45.0
+NOISE_SD = 0.03          # per-frame input noise used in training; the web app's noise toggle must match
+APPROACH_S = 0.6         # seconds from a threat appearing to contact
 
 # --- model initialisation ---
 TAU_MIN_MS, TAU_MAX_MS, TAU_INIT_MS = 5.0, 200.0, 20.0

@@ -1,4 +1,4 @@
-"""Streaming readers for the MaleCNS feathers (column projection only; see CLAUDE.md)."""
+"""Streaming readers for the MaleCNS feathers (column projection only; see docs/model-contract.md)."""
 from pathlib import Path
 
 import numpy as np

@@ -3,7 +3,17 @@
 const fmtInt = new Intl.NumberFormat("en-US");
 const CLASS_VAR = { none: "--class-none", dodge_right: "--class-dodge-right", dodge_left: "--class-dodge-left", takeoff: "--class-takeoff" };
 const SIGN = { 1: ["Excitatory", "--glow-excitatory"], "-1": ["Inhibitory", "--glow-inhibitory"], 0: ["Modulatory or unknown", "--glow-modulatory"] };
-const LAYER = ["Input", "Hidden · 1 hop", "Hidden · 2+ hops", "Descending", "Motor"];
+export const LAYER_NAMES = ["Input", "Hidden · 1 hop", "Hidden · 2+ hops", "Descending", "Motor"];
+// the five clusters of the layers view, in the same order as bundle.layer (0…4)
+const LAYER_TAG = ["Input", "Hidden 1", "Hidden 2+", "Descending", "Motor"];
+// what the colors in the 3D view mean; the dot colors are the scene's own glow tokens
+const LEGEND = [
+  ["Input", "--glow-input"],
+  ["Excitatory", "--glow-excitatory"],
+  ["Inhibitory", "--glow-inhibitory"],
+  ["Decision", "--glow-dn"],
+  ["Motor", "--glow-mn"],
+];
 
 export const prettyClass = (name) => {
   const s = String(name ?? "none").replace(/_/g, " ");
@@ -25,6 +35,10 @@ const KEYS = [
   ["→  D", "Threat from the right"],
   ["Shift", "Fast loom (with a direction)"],
   ["Click", "Threat from that direction"],
+  ["Tab", "Focus the 3D view"],
+  ["←  ↑  →  ↓", "Orbit the focused 3D view"],
+  ["+  −", "Zoom the 3D view"],
+  ["[  ]", "Previous or next neuron"],
   ["L", "Anatomy or layers"],
   ["Space", "Pause"],
   ["S", "Slow motion"],
@@ -37,7 +51,10 @@ const KEYS = [
 const fmtAz = (az) => `${az > 0.5 ? "+" : az < -0.5 ? "−" : ""}${Math.abs(Math.round(az))}°`;
 const threatSide = (th) => (th.cls === 3 || Math.abs(th.azimuthDeg) <= 45 ? "front" : th.azimuthDeg < 0 ? "left" : "right");
 
-export function createHud({ title, controls, decisionPanel, tooltip }, { classes, counts, decision = { p: 0.7 } }) {
+export function createHud(
+  { title, controls, decisionPanel, tooltip, layerLabels = null },
+  { classes, counts, decision = { p: 0.7 } },
+) {
   const cbs = [];
   const emit = (name, arg) => { for (const cb of cbs) cb(name, arg); };
   const state = { layout: "anatomy", pause: false, slowmo: false, noise: false, bloom: true };
@@ -54,7 +71,10 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
       <span><b>${fmtInt.format(counts.edges)}</b> synapses</span>
       <span><b data-fps>–</b> fps</span>
     </p>
-    <p class="hud-active"><i class="hud-live" aria-hidden="true"></i><b data-active>0</b> neurons active</p>`;
+    <p class="hud-active"><i class="hud-live" aria-hidden="true"></i><b data-active>0</b> neurons active</p>
+    <ul class="hud-legend" aria-label="What the colors mean">
+      ${LEGEND.map(([name, v]) => `<li style="--c: var(${v})"><i aria-hidden="true"></i>${name}</li>`).join("")}
+    </ul>`;
   const fpsEl = title.querySelector("[data-fps]");
   const activeEl = title.querySelector("[data-active]");
 
@@ -132,6 +152,67 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
   }
   controls.querySelectorAll("[data-control]").forEach((b) => b.addEventListener("click", () => trigger(b.dataset.control), { signal }));
 
+  // ------------------------------------------------------------ layer labels (layers view only)
+  // Positioned from scene.layerAnchors(): the five tags hang off one rule above the slabs, so they read as the
+  // axis of a wiring diagram and stay clear of the panels in the corners. The rule carries the left→right flow
+  // hint. Opacity comes from the anchors, so the labels fade in with the morph and are gone in anatomy view.
+  let tags = [], flow = null, flowFrom = 0, flowTo = 0;
+  if (layerLabels) {
+    layerLabels.classList.add("hud-layer-labels");
+    layerLabels.innerHTML =
+      LAYER_TAG.map((t) => `<span class="ll-tag">${t}</span>`).join("") +
+      `<span class="ll-flow"><b>signal flow</b></span>`;
+    tags = [...layerLabels.querySelectorAll(".ll-tag")];
+    flow = layerLabels.querySelector(".ll-flow");
+  }
+  const lastPos = tags.map(() => ({ x: -1, y: -1, o: -1 }));
+  let headerBottom = 0;
+  const measureHeader = () => {
+    headerBottom = 0;
+    for (const el of [title, controls]) {
+      const r = el?.getBoundingClientRect();
+      if (r?.height) headerBottom = Math.max(headerBottom, r.bottom);
+    }
+  };
+  if (layerLabels) {
+    measureHeader();
+    window.addEventListener("resize", measureHeader, { signal });
+  }
+
+  const TAG_DROP = 9; // px between the flow rule and the tag row
+
+  function setLayerAnchors(anchors) {
+    if (!layerLabels || !anchors) return;
+    const on = anchors.some((a) => a.opacity > 0.01);
+    layerLabels.hidden = !on;
+    if (!on) return;
+    let rule = Infinity, minX = Infinity, maxX = -Infinity;
+    for (const a of anchors) if (a.opacity > 0.01) rule = Math.min(rule, a.yTop ?? a.y);
+    rule = Math.max(rule - 26, headerBottom + 14); // never under the title block or the controls
+    const y = rule + TAG_DROP;
+    for (let L = 0; L < tags.length; L++) {
+      const a = anchors[L];
+      if (!a) continue;
+      const x = Math.max(52, Math.min(window.innerWidth - 52, a.x));
+      const o = Math.max(0, Math.min(1, a.opacity));
+      const p = lastPos[L];
+      if (Math.abs(p.x - x) > 0.5 || Math.abs(p.y - y) > 0.5) {
+        tags[L].style.transform = `translate(-50%, 0) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        p.x = x; p.y = y;
+      }
+      if (Math.abs(p.o - o) > 0.01) { tags[L].style.opacity = o.toFixed(2); p.o = o; }
+      if (o > 0.01) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
+    }
+    if (flow && maxX > minX) {
+      if (Math.abs(flowFrom - minX) > 0.5 || Math.abs(flowTo - rule) > 0.5) {
+        flow.style.transform = `translate(${minX.toFixed(1)}px, ${rule.toFixed(1)}px)`;
+        flow.style.width = `${(maxX - minX).toFixed(1)}px`;
+        flowFrom = minX; flowTo = rule;
+      }
+      flow.style.opacity = lastPos[0]?.o ?? 1;
+    }
+  }
+
   // ------------------------------------------------------------ decision panel
   decisionPanel.classList.add("hud-panel", "hud-decision");
   decisionPanel.setAttribute("aria-label", "Escape decision");
@@ -144,7 +225,7 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
       ${classes.map((c, i) => `
         <li class="dp-row" data-i="${i}" style="--c: var(${CLASS_VAR[c] ?? "--ink-3"})">
           <span class="dp-label"><i class="dp-sw" aria-hidden="true"></i>${prettyClass(c)}</span>
-          <span class="dp-track" role="meter" aria-label="${prettyClass(c)} probability" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0">
+          <span class="dp-track" role="meter" aria-label="${prettyClass(c)} probability" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" aria-valuetext="0 percent">
             <span class="dp-fill"></span><span class="dp-thr" style="left:${decision.p * 100}%"></span>
           </span>
           <span class="dp-val">0.00</span>
@@ -173,11 +254,18 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
   const verdictMark = decisionPanel.querySelector(".dp-mark");
   const latency = decisionPanel.querySelector(".dp-latency");
   const scoreEls = Object.fromEntries([...decisionPanel.querySelectorAll("[data-s]")].map((e) => [e.dataset.s, e]));
+  const bars = decisionPanel.querySelector(".dp-bars");
   let lastWinner = -1;
   const lastText = [];
   const lastScale = [];
+  // Once a decision latches, the bars stop tracking the network: a live bar can cross into another class a
+  // few frames later and contradict the verdict that is being held. They freeze on the deciding frame
+  // (one more setProbs lands, since main.js updates the probabilities after the decider fires) and ghost
+  // until the next threat.
+  let frozen = false, freezePending = false;
 
   function setProbs(probs) {
+    if (frozen) return;
     let w = 0;
     for (let i = 1; i < probs.length; i++) if (probs[i] > probs[w]) w = i;
     for (let i = 0; i < rows.length; i++) {
@@ -188,6 +276,7 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
       if (lastText[i] !== txt) {
         vals[i].textContent = txt;
         tracks[i].setAttribute("aria-valuenow", txt);
+        tracks[i].setAttribute("aria-valuetext", `${Math.round(p * 100)} percent`);
         lastText[i] = txt;
       }
     }
@@ -195,6 +284,20 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
       rows.forEach((r, i) => r.classList.toggle("is-winner", i === w));
       lastWinner = w;
     }
+    if (freezePending) {
+      freezePending = false;
+      frozen = true;
+      bars?.classList.add("is-frozen");
+    }
+  }
+
+  /** Bars track the network again, and the latched decision styling comes off. */
+  function thaw() {
+    frozen = false;
+    freezePending = false;
+    bars?.classList.remove("is-frozen");
+    for (const r of rows) r.classList.remove("is-latched");
+    lastBox.classList.remove("is-latched");
   }
 
   function setScore(s) {
@@ -212,6 +315,7 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
 
   /** A new threat is on its way: the verdict box shows it and the previous verdict recedes. */
   function showIncoming(threat) {
+    thaw();
     statusText.textContent = describeThreat(threat);
     lastBox.classList.add("is-incoming");
     lastBox.style.setProperty("--c", "var(--ink-2)");
@@ -237,13 +341,19 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
         const tail = correct || !expectedName ? "" : ` · needed ${prettyClass(expectedName).toLowerCase()}`;
         latency.innerHTML = `<b>${Math.round(latencyMs ?? 0)} ms</b> before contact${tail}`;
       }
-      flash(rows[classes.indexOf(name)]);
+      const row = rows[classes.indexOf(name)];
+      for (const r of rows) r.classList.toggle("is-latched", r === row);
+      flash(row);
+      freezePending = true; // hold the bars where they were when the network committed
     }
+    lastBox.classList.add("is-latched");
     flash(lastBox);
+    flash(verdict);
     setScore(score);
   }
 
   function resetDecision() {
+    thaw();
     lastBox.classList.remove("is-incoming");
     lastBox.style.removeProperty("--c");
     verdict.className = "dp-verdict is-empty";
@@ -279,7 +389,7 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
     }
     if (info.index !== tipIndex || tipMeter === null) {
       const sign = SIGN[String(Math.sign(info.sign ?? 0))];
-      const layer = LAYER[info.layer] ?? null;
+      const layer = LAYER_NAMES[info.layer] ?? null;
       const sub = [info.superclass ? prettyClass(info.superclass) : null, layer].filter(Boolean).map(esc).join(" · ");
       tooltip.innerHTML = `
         <div class="tt-type">${esc(info.type ?? "Unknown type")}</div>
@@ -374,6 +484,7 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
 
   return {
     setProbs,
+    setLayerAnchors,
     showDecision,
     showIncoming,
     setScore,
@@ -391,7 +502,7 @@ export function createHud({ title, controls, decisionPanel, tooltip }, { classes
       ac.abort();
       help.remove();
       cbs.length = 0;
-      for (const el of [title, controls, decisionPanel, tooltip]) el.innerHTML = "";
+      for (const el of [title, controls, decisionPanel, tooltip, layerLabels]) if (el) el.innerHTML = "";
       tooltip.hidden = true;
     },
   };

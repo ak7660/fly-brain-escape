@@ -6,7 +6,7 @@ Test bands (never used for training or validation):
   slow     l/v 60–80 ms (slower looms than trained)
 Controls: readout_only and shuffled runs (see flybrain.train), lesion (inputs silenced) of each real run,
 and input_bypass (logistic regression straight from the input cells, no connectome).
-Claim rule (CLAUDE.md): "real beats X" only if mean(real) − mean(X) > 2 pooled SDs.
+Claim rule (docs/model-contract.md and docs/results.md): "real beats X" only if mean(real) − mean(X) > 2 pooled SDs.
 """
 import json
 from pathlib import Path
@@ -94,6 +94,31 @@ def input_bypass(kind, side, sets, n_train=2000, n_frames=72, steps=300, seed=0)
     return out
 
 
+def input_type_gain_ranks(circuit, calib, run_dirs, of=("LC4", "LPLC2")):
+    """Where the input cell types rank among all learned per-type output gains, per seed.
+
+    Guards against cherry-picking: with 1,698 types (423 of them singletons) the single most-boosted type is
+    noise, so only a consistent rank across seeds means anything.
+    """
+    out = {"n_types": None, "per_run": [], "ranks": {t: [] for t in of}}
+    for run_dir in run_dirs:
+        cfg = json.loads((Path(run_dir) / "config.json").read_text())
+        model, _, _ = build(circuit, cfg["variant"], cfg["seed"], calib)
+        model.load_state_dict(torch.load(Path(run_dir) / "ckpt_best.pt"))
+        types = np.asarray(model.type_names)
+        gains = np.exp(model.pre_scale.detach().numpy())
+        order = np.argsort(-gains)
+        out["n_types"] = len(types)
+        entry = {"run": Path(run_dir).name, "top_type": str(types[order[0]]), "top_gain": float(gains[order[0]])}
+        for t in of:
+            rank = int(np.where(types[order] == t)[0][0]) + 1
+            entry[t] = {"gain": float(gains[types == t][0]), "rank": rank}
+            out["ranks"][t].append(rank)
+        out["per_run"].append(entry)
+    out["median_rank"] = {t: float(np.median(v)) for t, v in out["ranks"].items()}
+    return out
+
+
 def _stats(values):
     vals = [v for v in values if v is not None]
     if not vals:
@@ -102,15 +127,20 @@ def _stats(values):
             "values": values}
 
 
-def pooled_gap_claim(a, b):
+def pooled_gap_claim(a, b, min_pooled_sd=0.0):
+    """Pre-registered rule: claim a difference only when mean(a) − mean(b) > 2 pooled SDs.
+
+    `min_pooled_sd` floors the pooled SD so a degenerate spread (e.g. every seed landing on the same
+    coarse grid point) cannot make the test vacuous.
+    """
     a, b = np.asarray(a, float), np.asarray(b, float)
     sd = lambda v: np.std(v, ddof=1) if len(v) > 1 else 0.0
-    pooled = float(np.sqrt((sd(a) ** 2 + sd(b) ** 2) / 2))
+    pooled = max(float(np.sqrt((sd(a) ** 2 + sd(b) ** 2) / 2)), float(min_pooled_sd))
     gap = float(a.mean() - b.mean())
     return {"gap": gap, "pooled_sd": pooled, "claim": bool(gap > 2 * pooled and gap > 0)}
 
 
-def summarize(runs, bypass=None, lesion=None):
+def summarize(runs, bypass=None, lesion=None, budget=300, eval_every=10):
     variants = {}
     for v in sorted({r["variant"] for r in runs}):
         rs = [r for r in runs if r["variant"] == v]
@@ -129,9 +159,12 @@ def summarize(runs, bypass=None, lesion=None):
             claims[f"real_vs_{other}"] = {
                 "accuracy": pooled_gap_claim([r["overall"]["accuracy"] for r in real],
                                              [r["overall"]["accuracy"] for r in rest]),
-                # fewer iterations is better → compare negated values; unreached counts as the full budget
-                "learning_speed": pooled_gap_claim([-(r["iters_to_90"] or 10**4) for r in real],
-                                                   [-(r["iters_to_90"] or 10**4) for r in rest]),
+                # fewer iterations is better → compare negated values; a run that never reached 90% counts as
+                # the full training budget. The eval grid is coarse (every `eval_every` iterations), so the pooled
+                # SD is floored at one grid step.
+                "learning_speed": pooled_gap_claim([-(r["iters_to_90"] or budget) for r in real],
+                                                   [-(r["iters_to_90"] or budget) for r in rest],
+                                                   min_pooled_sd=eval_every),
             }
     return {"variants": variants, "claims": claims, "input_bypass": bypass, "lesion": lesion}
 
@@ -153,6 +186,8 @@ def main():
     lesions = [r["lesion"]["overall"]["accuracy"] for r in runs if "lesion" in r]
     bypass = input_bypass(kind, side, sets)
     summary = summarize(runs, bypass=bypass, lesion={"accuracy": _stats(lesions)})
+    summary["input_type_gain_ranks"] = input_type_gain_ranks(
+        circuit, calib, sorted((config.ROOT / "results" / "runs").glob("real_s*")))
     summary["runs"] = runs
     summary["test_bands"] = {b: {"lv_s": list(lv), "n": len(sets[b]["episode_class"])} for b, lv in BANDS.items()}
     out = config.ROOT / "results" / "summary.json"

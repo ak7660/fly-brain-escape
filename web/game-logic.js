@@ -62,6 +62,7 @@ export function accuracy(score) {
  * Events: {kind: "correct"|"wrong"|"false_alarm"|"miss", threat|null, classIndex, expected, latencyMs, t}
  */
 export function createGameCore({ stim, fps = 60, lingerS = 0.45, minDecisionAgeS = 0.1 }) {
+  const approachS = stim?.approach_s ?? 0.6; // seconds from spawn to contact (manifest: flybrain/config.APPROACH_S)
   let list = [];
   let now = 0;
   let nextId = 1;
@@ -72,14 +73,14 @@ export function createGameCore({ stim, fps = 60, lingerS = 0.45, minDecisionAgeS
 
   const snap = (t) => Math.round(t * fps) / fps;
 
-  function spawn(azimuthDeg, lv = 0.04, approachS = 0.6) {
+  function spawn(azimuthDeg, lv = 0.04, approach = approachS) {
     const tSpawn = snap(now);
     const th = {
       id: nextId++,
       azimuthDeg: wrapDeg(azimuthDeg),
       lv,
       tSpawn,
-      tCollision: snap(tSpawn + approachS),
+      tCollision: snap(tSpawn + approach),
       cls: threatClass(azimuthDeg, stim),
       outcome: null,
     };

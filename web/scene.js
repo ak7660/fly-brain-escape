@@ -86,7 +86,16 @@ export function createScene(container, bundle, opts = {}) {
   // No tone mapping: tone curves crush and hue-shift the near-black background; brightness is budgeted instead.
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.domElement.classList.add("scene-canvas");
+  // a11y: the view is an image with a description that follows the state, and it takes keyboard focus so it
+  // can be orbited, zoomed and stepped through without a pointer (the key bindings live in main.js).
+  renderer.domElement.setAttribute("role", "img");
+  renderer.domElement.setAttribute("aria-label", "3D view of the fly brain circuit");
+  renderer.domElement.tabIndex = 0;
   container.appendChild(renderer.domElement);
+  const srLive = document.createElement("p");
+  srLive.className = "sr-only";
+  srLive.setAttribute("aria-live", "polite");
+  container.appendChild(srLive);
 
   const scene = new THREE.Scene();
   // scene.background (not setClearColor): the clear color is not linearized for float render targets
@@ -341,11 +350,40 @@ export function createScene(container, bundle, opts = {}) {
       // room for the flash ring at the input slab and the enlarged GF reticle
       halfH: lb.maxR + 0.3 * S,
       halfW: (lb.maxX - lb.minX) / 2 + 0.35 * S,
+      padBottom: 300, // the arena and decision panels occupy the bottom corners in this view
     },
   };
   let layoutName = "anatomy";
   const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-  const viewDistance = (v) => Math.max(v.halfH / tanHalf, v.halfW / (tanHalf * Math.max(camera.aspect, 0.3)));
+  // The view is fitted to the viewport, not to a fixed distance: a short or narrow window would otherwise clip
+  // the optic lobes and slide them under the header. PAD_TOP keeps the title block and the controls clear, and
+  // a view may reserve more room at the bottom (the layered row would otherwise run under the corner panels).
+  const PAD_TOP = 90, PAD_BOTTOM = 24, PAD_SIDE = 24;
+  const framedTarget = new THREE.Vector3();
+  function framing(v) {
+    const padBottom = Math.min(v.padBottom ?? PAD_BOTTOM, 0.36 * viewH);
+    const usableH = Math.max(80, viewH - PAD_TOP - padBottom);
+    const usableW = Math.max(80, viewW - 2 * PAD_SIDE);
+    const dist = Math.max((v.halfH * viewH) / usableH, (v.halfW * viewH) / usableW) / tanHalf;
+    // push the model down the screen by half the padding difference, so it sits under the header
+    const up = (((PAD_TOP - padBottom) / 2) * 2 * dist * tanHalf) / viewH;
+    framedTarget.copy(v.target);
+    framedTarget.y += up;
+    return { dist, target: framedTarget };
+  }
+  const viewDistance = (v) => framing(v).dist;
+  let fitDist = 0, placed = false;
+  /** Re-fit after a resize, keeping the user's own orbit and their zoom relative to the fitted distance. */
+  function reframe() {
+    if (!placed || (tween.active && tween.camera)) return;
+    const f = framing(VIEWS[layoutName]);
+    const off = camera.position.clone().sub(controls.target);
+    const d = off.length() || 1;
+    const ratio = fitDist > 0 ? d / fitDist : 1;
+    const el = Math.asin(THREE.MathUtils.clamp(off.y / d, -1, 1));
+    placeCamera(Math.atan2(off.x, off.z), el, f.dist * ratio, f.target);
+    fitDist = f.dist;
+  }
   function placeCamera(az, el, dist, tgt) {
     camera.position.set(
       tgt.x + dist * Math.cos(el) * Math.sin(az),
@@ -367,12 +405,14 @@ export function createScene(container, bundle, opts = {}) {
   controls.addEventListener("end", onEnd);
 
   // ---------- quality / bloom ----------
+  // Three tiers. Measured on an Intel Iris Xe at 1600x1000: bloom costs ~16 ms/frame, so "medium" trims the
+  // cheap decorative geometry while keeping the glow, and only "low" gives the glow up to hold 60 fps.
   function applyQuality() {
-    const low = quality === "low";
-    edgeGeo.setDrawRange(0, 2 * (low ? Math.min(LOW_EDGES, V) : V));
-    dustGeo.setDrawRange(0, low ? Math.ceil(M / 2) : M);
-    edgeMat.uniforms.uIdleAlpha.value = low ? 0 : EDGE_IDLE_ALPHA; // low: silent edges are collapsed (no overdraw)
-    shellMat.side = low ? THREE.FrontSide : THREE.DoubleSide;
+    const low = quality === "low", lean = quality !== "high";
+    edgeGeo.setDrawRange(0, 2 * (lean ? Math.min(LOW_EDGES, V) : V));
+    dustGeo.setDrawRange(0, low ? Math.ceil(M / 4) : lean ? Math.ceil(M / 2) : M);
+    edgeMat.uniforms.uIdleAlpha.value = lean ? 0 : EDGE_IDLE_ALPHA; // silent edges collapse (no overdraw)
+    shellMat.side = lean ? THREE.FrontSide : THREE.DoubleSide;
     shellMat.needsUpdate = true;
     bloomPass.enabled = bloomOn && !low;
     neuronMat.uniforms.uGain.value = bloomPass.enabled ? 1.0 : 1.25; // without bloom, lift the gain so activity reads
@@ -393,12 +433,16 @@ export function createScene(container, bundle, opts = {}) {
     const dpr = renderer.getPixelRatio();
     shared.uSizeScale.value = (viewH * dpr) / (2 * tanHalf);
     shared.uMaxPoint.value = Math.max(24, (96 * viewH * dpr) / 1000);
+    reframe();
   }
   resize();
   applyQuality();
   {
     const v = VIEWS.anatomy;
-    placeCamera(v.az, v.el, viewDistance(v), v.target);
+    const f0 = framing(v);
+    placeCamera(v.az, v.el, f0.dist, f0.target);
+    fitDist = f0.dist;
+    placed = true;
     controls.update();
   }
   const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => resize()) : null;
@@ -415,9 +459,10 @@ export function createScene(container, bundle, opts = {}) {
   const hits = [];
   const ndc = new THREE.Vector2();
   const chosen = new Int32Array(HIGHLIGHT_TOP);
+  let selected = -1; // keyboard selection: flared while it is set
 
   // ---------- HUD anchors ----------
-  const anchors = Array.from({ length: LAYER_COUNT }, (_, L) => ({ layer: L, x: 0, y: 0, opacity: 0 }));
+  const anchors = Array.from({ length: LAYER_COUNT }, (_, L) => ({ layer: L, x: 0, y: 0, yTop: 0, opacity: 0 }));
 
   // ---------- API ----------
   const api = {
@@ -441,7 +486,9 @@ export function createScene(container, bundle, opts = {}) {
       if (reducedMotion) { // instant cut
         tween.active = false;
         shared.uMix.value = name === "layers" ? 1 : 0;
-        placeCamera(v.az, v.el, viewDistance(v), v.target);
+        const f = framing(v);
+        placeCamera(v.az, v.el, f.dist, f.target);
+        fitDist = f.dist;
         return;
       }
       tween.active = true;
@@ -454,7 +501,9 @@ export function createScene(container, bundle, opts = {}) {
       tween.el0 = Math.asin(THREE.MathUtils.clamp(tmpV.y / tween.d0, -1, 1));
       tween.az0 = Math.atan2(tmpV.x, tmpV.z);
       tween.tg0.copy(controls.target);
-      tween.el1 = v.el; tween.d1 = viewDistance(v); tween.tg1.copy(v.target);
+      const f = framing(v);
+      tween.el1 = v.el; tween.d1 = f.dist; tween.tg1.copy(f.target);
+      fitDist = f.dist;
       const dAz = Math.atan2(Math.sin(v.az - tween.az0), Math.cos(v.az - tween.az0)); // shortest way round
       tween.az1 = tween.az0 + dAz;
     },
@@ -492,6 +541,53 @@ export function createScene(container, bundle, opts = {}) {
       }
     },
 
+    /** Description of what the view currently shows; `announce` also sends it to the polite live region. */
+    setLabel(text, announce = false) {
+      if (!text) return;
+      renderer.domElement.setAttribute("aria-label", text);
+      if (announce) srLive.textContent = text;
+    },
+
+    /** Keyboard orbit (radians). Counts as an interaction, so the idle drift stays out of the way. */
+    orbit(dAz, dEl) {
+      tmpV.copy(camera.position).sub(controls.target);
+      const d = tmpV.length() || 1;
+      const el = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(tmpV.y / d, -1, 1)) + dEl, -1.35, 1.35);
+      placeCamera(Math.atan2(tmpV.x, tmpV.z) + dAz, el, d, controls.target.clone());
+      lastInteraction = clock;
+      tween.camera = false;
+    },
+
+    /** Keyboard zoom: factor < 1 moves in. */
+    zoomBy(factor) {
+      tmpV.copy(camera.position).sub(controls.target);
+      const d = tmpV.length() || 1;
+      const nd = THREE.MathUtils.clamp(d * factor, controls.minDistance, controls.maxDistance);
+      const el = Math.asin(THREE.MathUtils.clamp(tmpV.y / d, -1, 1));
+      placeCamera(Math.atan2(tmpV.x, tmpV.z), el, nd, controls.target.clone());
+      lastInteraction = clock;
+      tween.camera = false;
+    },
+
+    /** The keyboard-selected neuron stays flared until it is cleared with setSelected(-1). */
+    setSelected(index) {
+      selected = Number.isInteger(index) && index >= 0 && index < N ? index : -1;
+      return selected;
+    },
+    getSelected: () => selected,
+
+    /** Where a neuron currently is on screen (CSS px, relative to the canvas). */
+    screenPos(index) {
+      if (!(index >= 0 && index < N)) return null;
+      const mix = shared.uMix.value, o = 3 * index;
+      tmpV.set(
+        pos[o] + (layered[o] - pos[o]) * mix,
+        pos[o + 1] + (layered[o + 1] - pos[o + 1]) * mix,
+        pos[o + 2] + (layered[o + 2] - pos[o + 2]) * mix,
+      ).project(camera);
+      return { x: ((tmpV.x + 1) / 2) * viewW, y: ((1 - tmpV.y) / 2) * viewH, visible: tmpV.z < 1 };
+    },
+
     pick(clientX, clientY) {
       if (disposed) return -1;
       const rect = renderer.domElement.getBoundingClientRect();
@@ -517,19 +613,24 @@ export function createScene(container, bundle, opts = {}) {
       return best;
     },
 
-    /** Screen anchors (CSS px, relative to the canvas) just below each layer slab; opacity follows the layers morph. */
+    /**
+     * Screen anchors (CSS px, relative to the canvas) for each layer slab: `y` just below it, `yTop` just above it.
+     * Opacity follows the layers morph, so labels fade in with it and are gone in anatomy view.
+     */
     layerAnchors() {
       for (let L = 0; L < LAYER_COUNT; L++) {
-        tmpV.set(slab[L].x, -slab[L].rad - 0.06 * S, 0).project(camera);
-        const a = anchors[L];
+        const a = anchors[L], pad = slab[L].rad + 0.06 * S;
+        tmpV.set(slab[L].x, -pad, 0).project(camera);
         a.x = ((tmpV.x + 1) / 2) * viewW;
         a.y = ((1 - tmpV.y) / 2) * viewH;
         a.opacity = tmpV.z < 1 ? shared.uMix.value : 0;
+        tmpV.set(slab[L].x, pad, 0).project(camera);
+        a.yTop = ((1 - tmpV.y) / 2) * viewH;
       }
       return anchors;
     },
 
-    setQuality(q) { quality = q === "low" ? "low" : "high"; applyQuality(); },
+    setQuality(q) { quality = ["low", "medium", "high"].includes(q) ? q : "high"; applyQuality(); },
     setBloom(on) { bloomOn = !!on; applyQuality(); },
     getLayout: () => layoutName,
     getQuality: () => quality,
@@ -586,7 +687,7 @@ export function createScene(container, bundle, opts = {}) {
         const h = highlight[i];
         if (h > 0) highlight[i] = h > 0.002 ? h * kHi : 0;
         actData[4 * i] = nd;
-        actData[4 * i + 1] = highlight[i];
+        actData[4 * i + 1] = i === selected ? 1 : highlight[i];
       }
       actTex.needsUpdate = true;
 
@@ -610,6 +711,7 @@ export function createScene(container, bundle, opts = {}) {
       composer.dispose();
       renderer.dispose();
       renderer.domElement.remove();
+      srLive.remove();
     },
 
     // dev tooling only

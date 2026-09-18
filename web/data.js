@@ -13,6 +13,25 @@ const TYPED = {
 // every .bin the loader reads; any other files listed in the manifest are still parsed and length-checked
 const REQUIRED_FILES = ["neurons.bin", "neuron_meta.bin", "csr.bin", "io.bin", "vis_edges.bin", "dust.bin", "shell_brain.bin", "shell_vnc.bin"];
 
+// Progress weights for the two JSON files: their size is not known until they are fetched, so they are
+// estimated (the manifest is ~5 kB, neuron_info.json ~190 kB) and the .bin weights come from the manifest.
+const MANIFEST_BYTES = 6000;
+const INFO_BYTES = 190000;
+const BIN_BYTES_FALLBACK = 250000;
+
+/**
+ * Byte weights for the load progress bar, keyed by fetched file name (manifest.json, neuron_info.json and
+ * every .bin the manifest lists). Pure: `files` is `manifest.files`.
+ */
+export function progressWeights(files) {
+  const w = { "manifest.json": MANIFEST_BYTES, "neuron_info.json": INFO_BYTES };
+  for (const [name, entry] of Object.entries(files ?? {})) {
+    const bytes = Number(entry?.bytes);
+    w[name] = Number.isFinite(bytes) && bytes > 0 ? bytes : BIN_BYTES_FALLBACK;
+  }
+  return w;
+}
+
 function fail(msg) {
   throw new Error(`loadBundle: ${msg}`);
 }
@@ -83,9 +102,27 @@ function checkRange(name, arr, limit, what) {
   for (let k = 0; k < arr.length; k++) if (arr[k] >= limit) fail(`${name}[${k}]=${arr[k]} out of range (must be < ${what} = ${limit})`);
 }
 
-export async function loadBundle(baseUrl = "assets/circuit_v1/", fetchImpl = fetch) {
+/**
+ * @param {string} baseUrl
+ * @param {typeof fetch} fetchImpl
+ * @param {{onProgress?: (fraction: number, name: string) => void}} [opts]
+ *   onProgress is called as each file lands, with a monotonically rising fraction (0…1) weighted by byte size
+ *   and the name of the file that just finished. It never throws into the load.
+ */
+export async function loadBundle(baseUrl = "assets/circuit_v1/", fetchImpl = fetch, opts = {}) {
   if (new Uint8Array(new Uint16Array([1]).buffer)[0] !== 1) fail("big-endian hosts are not supported");
   const base = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
+  let weights = null, total = 1, done = 0;
+  const report = (name) => {
+    if (!onProgress) return;
+    done += weights?.[name] ?? 0;
+    try {
+      onProgress(Math.min(1, done / total), name);
+    } catch (e) {
+      console.warn("loadBundle: onProgress threw", e);
+    }
+  };
   const manifest = await fetchBody(fetchImpl, base + "manifest.json", "json");
   if (manifest.format !== "flybrain-bundle" || manifest.version !== 1) {
     fail(`unsupported bundle ${manifest.format} v${manifest.version} at ${base}manifest.json`);
@@ -99,9 +136,15 @@ export async function loadBundle(baseUrl = "assets/circuit_v1/", fetchImpl = fet
   if (!Array.isArray(manifest.classes) || !manifest.classes.length) fail("manifest.json has no classes");
 
   const names = Object.keys(files);
+  if (onProgress) {
+    weights = progressWeights(files);
+    total = Object.values(weights).reduce((a, b) => a + b, 0) || 1;
+    report("manifest.json");
+  }
+  const track = (name, p) => (onProgress ? p.then((v) => (report(name), v)) : p);
   const [info, ...buffers] = await Promise.all([
-    fetchBody(fetchImpl, base + "neuron_info.json", "json"),
-    ...names.map((n) => fetchBody(fetchImpl, base + n, "arrayBuffer")),
+    track("neuron_info.json", fetchBody(fetchImpl, base + "neuron_info.json", "json")),
+    ...names.map((n) => track(n, fetchBody(fetchImpl, base + n, "arrayBuffer"))),
   ]);
   const f = {};
   names.forEach((n, i) => (f[n] = parseBin(n, buffers[i], files[n])));
@@ -175,5 +218,9 @@ export async function loadBundle(baseUrl = "assets/circuit_v1/", fetchImpl = fet
   b.dust = new Float32Array(rawDust.length);
   for (let k = 0; k < rawDust.length; k++) b.dust[k] = rawDust[k] * dustScale;
 
+  if (onProgress) {
+    done = total;
+    report("ready");
+  }
   return b;
 }

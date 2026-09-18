@@ -85,7 +85,8 @@ def build_bundle(circuit, model, positions_nm, dust_nm, shells_nm, out_dir, vari
         "stimulus": {"input_kinds": list(config.INPUT_KINDS), "rf_centers_deg": list(config.RF_CENTERS_DEG),
                      "rf_sigma_deg": config.RF_SIGMA_DEG, "theta_sat_deg": config.THETA_SAT_DEG,
                      "thetadot_sat_dps": config.THETADOT_SAT_DPS, "label_onset_deg": config.LABEL_ONSET_DEG,
-                     "front_half_width_deg": config.FRONT_HALF_WIDTH_DEG},
+                     "front_half_width_deg": config.FRONT_HALF_WIDTH_DEG, "noise_sd": config.NOISE_SD,
+                     "approach_s": config.APPROACH_S},
         "classes": list(config.CLASSES), "decision": {"p": config.DECISION_P, "frames": config.DECISION_FRAMES},
         "counts": {"neurons": len(circuit.body), "edges": len(circuit.pre), "inputs": int((circuit.role == 0).sum()),
                    "dn": int((circuit.role == 2).sum()), "mn": int((circuit.role == 3).sum()),
@@ -143,7 +144,9 @@ def main(argv=None):
     extra = {"params": {**calib, "trained": False}}
     if args.checkpoint:
         model.load_state_dict(torch.load(args.checkpoint))
-        extra = {"params": {**calib, "trained": True, "checkpoint": str(args.checkpoint)}}
+        # report the TRAINED gain, not the calibration starting point (calib is kept for provenance)
+        extra = {"params": {"gain": float(torch.exp(model.log_gain.detach())), "bias": calib["bias"],
+                            "calibration": calib, "trained": True, "checkpoint": str(args.checkpoint)}}
         summary_path = config.ROOT / "results" / "summary.json"
         run_name = Path(args.checkpoint).parent.name
         if summary_path.exists():

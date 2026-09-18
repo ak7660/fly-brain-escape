@@ -1,9 +1,9 @@
 # Web app module contract (P5)
 
-This is the plain ES-modules app from `docs/plans/2026-09-17-fly-escape.md` §5. There is no build step. three.js 0.186.0 is loaded through the importmap in `index.html`.
+The browser app: plain ES modules, no build step. three.js 0.186.0 is loaded through the importmap in `index.html`.
 
 - **Serve:** `python3 -m http.server -d web 8000`
-- **Tests:** `cd web && node --test` (Node 24 is in `~/.local/bin`; passing a directory to `node --test` fails on Node 24)
+- **Tests:** `cd web && node --test` (Node 20+; passing a directory to `node --test` fails on Node 24)
 - **Integration:** `main.js` is written by the lead after the three tracks merge. Each track builds against this contract and uses stubs for the other tracks.
 
 ## Ownership (one owner per file)
@@ -55,7 +55,7 @@ export function threatClass(azimuthDeg, stim)             // 1 dodge_right (thre
 export function inputDrive(t, threats, inputKind, inputSide, stim, out?) // → Float64Array(NI); threat = {azimuthDeg, lv, tSpawn, tCollision}
 ```
 
-## `model.js` (js-model): the frame contract (CLAUDE.md), synchronous substeps
+## `model.js` (js-model): the frame contract (docs/model-contract.md), synchronous substeps
 ```js
 export function createModel(bundle) // → Model
 // Model = {
@@ -111,7 +111,7 @@ Keys: ←/A left threat · ↑/W front · →/D right (Shift = fast loom) · L l
 ### Additions agreed after review (game-hud)
 - `game.onSpawn(cb /* (threat) */)` fires for **every** spawn (keys, clicks, autoplay). main.js uses it to call `scene.flashInputs(side)` and `decider.reset()`.
 - Game gains `reset()`, `refreshTokens()` and `dispose()`; Hud gains `setScore`, `resetDecision`, `setControlState(name, value)`, `toggleHelp`, `dispose()`; `createHud` also takes the manifest's `decision`.
-- Scoring: a decision is attributed to the active, unresolved threat with the **largest θ** among threats at least `minDecisionAgeS` (0.1 s) old. There is no θ threshold: offline evaluation (`train.decide`) accepts any decision before contact, and the trained network often commits below `label_onset_deg`; an onset threshold scored those correct, early decisions as false alarms plus misses in live play. The minimum age only rejects decisions still driven by the previous threat. A decision with no qualifying threat is ignored within the linger window after a miss ("late"), otherwise it is a false alarm.
+- Scoring: a decision is attributed to the active, unresolved threat with the **largest θ** among threats at least `minDecisionAgeS` (0.1 s) old. There is no θ threshold: offline evaluation (`train.decide`) accepts any decision before contact, and the trained network often commits below `label_onset_deg`; an onset threshold scored those correct, early decisions as false alarms plus misses in live play. The minimum age rejects decisions still driven by the previous threat; such a decision counts as a false alarm (see tests/game-logic.test.mjs). A decision with no qualifying threat is ignored within the linger window after a miss ("late"), otherwise it is a false alarm.
 - Tooltip `info` = `{index, type, instance, superclass, role, layer, sign, activity, rMax}`. The Hud maps `layer` (0–4) and `sign` to labels.
 - **Frame order in main.js:** `game.tick(t)` → `drive = inputDrive(t, game.threats(), …)` → `model.step(drive)` → `probs` → `decider.update(probs)` → if it fires, `game.resolve(decision)` + `scene.highlightDecision(…)` → `scene.setActivity(model.r, rMax)` → `hud.setProbs(probs)`.
 - **OrbitControls must never call `listenToKeyEvents`**: it would `preventDefault` the arrow keys that spawn threats.

@@ -213,7 +213,7 @@ export function createGame({ arena, vfield, stim, classes, fps = 60 }) {
     if (!panel || panel.querySelector(".gp-head")) return;
     const head = document.createElement("div");
     head.className = "gp-head";
-    head.innerHTML = `<span class="gp-title">Arena</span><span class="gp-hint"><span class="gp-hint-text">Click or </span><kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><span class="gp-hint-text"> to launch a threat</span></span>`;
+    head.innerHTML = `<span class="gp-title">Arena</span><span class="gp-hint">Click or <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd> to launch<span class="gp-hint-tail"> a threat</span></span>`;
     panel.insertBefore(head, arena);
     const cap = document.createElement("div");
     cap.className = "gp-caption";
@@ -222,7 +222,7 @@ export function createGame({ arena, vfield, stim, classes, fps = 60 }) {
     const axis = document.createElement("div");
     axis.className = "gp-axis";
     axis.setAttribute("aria-hidden", "true");
-    axis.innerHTML = `<span>−180°</span><span>−90°</span><span>0°</span><span class="gp-axis-fold">Visual field</span><span>+90°</span><span>180°</span>`;
+    axis.innerHTML = `<span>−180°</span><span>−90°</span><span>0°</span><span>+90°</span><span>180°</span>`;
     vfield.after(axis);
     const liveEl = document.createElement("p");
     liveEl.className = "sr-only gp-live";
@@ -362,8 +362,8 @@ export function createGame({ arena, vfield, stim, classes, fps = 60 }) {
   }
 
   // ---- game API
-  function spawn(azimuthDeg, lv = 0.04, approachS = 0.6) {
-    return core.spawn(azimuthDeg, lv, approachS);
+  function spawn(azimuthDeg, lv = 0.04, approach) {  // approach defaults to the core's manifest value
+    return core.spawn(azimuthDeg, lv, approach);
   }
 
   function emit(ev) {

@@ -75,7 +75,8 @@ _CLASS_AZIMUTH = {1: -90.0, 2: 90.0, 3: 0.0}
 
 
 def sample_episodes(n, input_kind, input_side, rng, n_frames=72, lv_ranges=((0.02, 0.06),), p_empty=0.2,
-                    az_jitter_deg=20.0, gain_jitter=0.1, noise=0.03, onset_max_frame=24, approach_s=0.6):
+                    az_jitter_deg=20.0, gain_jitter=0.1, noise=config.NOISE_SD, onset_max_frame=24,
+                    approach_s=config.APPROACH_S):
     input_kind, input_side = np.asarray(input_kind), np.asarray(input_side)
     ni = len(input_kind)
     t = np.arange(n_frames) / config.FPS

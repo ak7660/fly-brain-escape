@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { loadBundle } from "../data.js";
+import { loadBundle, progressWeights } from "../data.js";
 import { BUNDLE_DIR, fsFetch } from "./helpers.mjs";
 
 const bundle = await loadBundle(BUNDLE_DIR, fsFetch());
@@ -164,4 +164,33 @@ test("fetch / json errors name the URL", async () => {
 
 test("a missing file throws", async () => {
   await assert.rejects(loadBundle(BUNDLE_DIR + "nope/", fsFetch()), /manifest\.json/);
+});
+
+test("progressWeights covers every fetched file and weights the .bin files by size", () => {
+  const w = progressWeights(m.files);
+  assert.equal(Object.keys(w).length, Object.keys(m.files).length + 2);
+  assert.ok(w["manifest.json"] > 0 && w["neuron_info.json"] > 0);
+  for (const [name, entry] of Object.entries(m.files)) assert.equal(w[name], entry.bytes, name);
+  // a manifest without byte counts still yields positive weights
+  const w2 = progressWeights({ "a.bin": {}, "b.bin": { bytes: 0 } });
+  assert.ok(w2["a.bin"] > 0 && w2["b.bin"] > 0);
+  assert.deepEqual(Object.keys(progressWeights()), ["manifest.json", "neuron_info.json"]);
+});
+
+test("onProgress reports every file once, rises monotonically and ends at 1", async () => {
+  const seen = [];
+  const b = await loadBundle(BUNDLE_DIR, fsFetch(), { onProgress: (f, name) => seen.push([f, name]) });
+  assert.equal(b.N, m.counts.neurons);
+  assert.equal(seen[0][1], "manifest.json");
+  assert.ok(seen[0][0] > 0, "the manifest lands before any .bin, so the bar starts above zero");
+  const names = seen.map(([, n]) => n);
+  for (const n of ["neuron_info.json", ...Object.keys(m.files)]) assert.equal(names.filter((x) => x === n).length, 1, n);
+  for (let i = 1; i < seen.length; i++) assert.ok(seen[i][0] >= seen[i - 1][0], `fraction fell at ${names[i]}`);
+  assert.ok(seen.every(([f]) => f >= 0 && f <= 1));
+  assert.equal(seen.at(-1)[0], 1);
+});
+
+test("a throwing onProgress does not fail the load", async () => {
+  const b = await loadBundle(BUNDLE_DIR, fsFetch(), { onProgress: () => { throw new Error("ui blew up"); } });
+  assert.equal(b.N, m.counts.neurons);
 });

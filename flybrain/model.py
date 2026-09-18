@@ -2,7 +2,7 @@
 
 W[post, pre] = exp(log_gain + post_scale[type(post)]) · w0 · exp(pre_scale[type(pre)]) keeps the sparse
 matrix W0 fixed and puts every trainable gain on the diagonal, so backprop needs only W0ᵀ (≈20× faster
-than per-synapse gradients on this circuit). See CLAUDE.md "Model contract".
+than per-synapse gradients on this circuit). See docs/model-contract.md.
 """
 import math
 import warnings

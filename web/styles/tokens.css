@@ -14,7 +14,8 @@
   --ink-1: #e6e8eb;   /* primary text */
   --ink-2: #a3a9b3;   /* secondary text */
   --ink-3: #7d8490;   /* muted: rules, icons and ≥ 4.6:1 labels only */
-  --grid: #1c2129;
+  --grid: #1c2129;    /* hairline rules and dividers (decorative, never a UI control) */
+  --track: #5a6270;   /* unfilled meter/progress track: 3.1:1 against --panel (WCAG non-text contrast) */
 
   /* glow colors for the 3D scene (bloom-friendly, not for text) */
   --glow-input: #38e1ff;
@@ -35,6 +36,18 @@
 
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* One type scale for the whole app (~1.15 steps around the 14px body size). Every font-size in app.css
+     comes from here, so --font-scale resizes the interface as a whole: ?present=1 sets 1.25 for a projector. */
+  --font-scale: 1;
+  --fs-display: calc(28px * var(--font-scale));  /* the verdict — the one piece of display type */
+  --fs-title: calc(19px * var(--font-scale));
+  --fs-lg: calc(16px * var(--font-scale));
+  --fs-md: calc(14px * var(--font-scale));       /* body */
+  --fs-sm: calc(13px * var(--font-scale));
+  --fs-xs: calc(12px * var(--font-scale));
+  --fs-2xs: calc(11px * var(--font-scale));      /* small labels, numbers */
+  --fs-3xs: calc(10px * var(--font-scale));      /* keycaps, axis ticks */
   --radius: 10px;
   --gap: 16px;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);

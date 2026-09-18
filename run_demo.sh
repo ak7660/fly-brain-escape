@@ -10,7 +10,7 @@ PORT="${PORT:-8000}"
 URL="http://localhost:${PORT}/"
 [[ "${1:-}" == "demo" ]] && URL="${URL}?demo=1"
 
-if ss -ltn 2>/dev/null | grep -q ":${PORT}\b"; then
+if command -v ss >/dev/null && ss -ltn 2>/dev/null | grep -q ":${PORT}\b"; then
   echo "Port ${PORT} is already in use. Try: PORT=8001 $0 ${1:-}"
   exit 1
 fi

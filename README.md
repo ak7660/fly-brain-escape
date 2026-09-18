@@ -17,6 +17,8 @@ cd fly-brain-escape
 
 Nothing to install and no build step: the browser app is plain ES modules, and the trained circuit ships as a 4.4 MB binary bundle in `web/assets/circuit_v1/`.
 
+**Performance.** The browser simulates all 4,296 neurons and 149,232 synapses every frame (~2 ms) and draws them with the rest of the budget. Measured on an Intel Iris Xe laptop GPU at 1600×1000: the full tier (bloom, all 50k visible synapses, 164k context points) runs ~30 fps, so the app steps down automatically — medium keeps the glow, low trades it for a steady 60 fps. Add `?present=1` to enlarge the HUD for a projector.
+
 **Controls:** ← ↑ → (or click the arena) launch a threat from the left, front or right · Shift = faster threat · **L** anatomy ↔ layers view · **Space** pause · **S** slow motion · **N** input noise · **B** bloom · **R** reset · **?** help.
 
 ## What you are looking at
@@ -27,7 +29,7 @@ Nothing to install and no build step: the browser app is plain ES modules, and t
 
 ## Results
 
-Three variants, three seeds each, identical data and training budget, scored on 1,200 held-out episodes that include loom speeds never seen during training.
+Three variants, three seeds each, identical data and training budget. Accuracy and latency are scored on 1,200 held-out episodes including loom speeds never seen during training; "iterations to 90%" is a validation-curve metric, measured on a 10-iteration grid.
 
 | wiring | held-out accuracy | iterations to 90% | decision before contact |
 |---|---|---|---|
@@ -39,10 +41,10 @@ Three variants, three seeds each, identical data and training budget, scored on 
 
 **What this supports** (claim rule fixed before training: a gap must exceed 2 pooled standard deviations):
 
-- ✅ The real wiring learns this task **~2.6× faster** than the same network with shuffled wiring.
+- ✅ The real wiring learns this task **~2.6× faster** than the same network with shuffled wiring (30 vs 77 iterations; the coarse grid bounds the ratio to roughly 1.7×–4.5×).
 - ❌ It is **not** more accurate than shuffled wiring: both saturate, and the gap is inside the noise.
 - ⚠️ The task is easy. A linear classifier reading the eye neurons directly scores 100%. The result is that a real connectome is a better *starting point for learning*, not that only a fly brain can solve it.
-- Silencing the input neurons drops the trained model to chance (21%), so the decisions really do depend on the visual pathway.
+- Silencing the input neurons drops the trained model to 21.2%, exactly the share of no-threat episodes: it then stays silent, so the decisions really do depend on the visual pathway.
 
 Full write-up with caveats: [`docs/results.md`](docs/results.md). Every number comes from `results/summary.json`.
 
@@ -60,7 +62,7 @@ MaleCNS connectome (31 GB)
 
 **What is real and fixed:** which neurons exist, which connect to which, how many synapses, and whether each neuron excites or inhibits. Training cannot add, remove or re-route a connection, and cannot flip a sign.
 
-**What is learned (7,999 numbers against 149,232 fixed synapses):** a global gain, per-cell-type send/receive gains, baselines and time constants, plus a 1,204-parameter readout from the descending neurons to the four actions. The connectome gives structure but no physiology and no meaning for the output: training supplies those. Notably, the cell type training boosted most is **LC4 (×1.50)**, the looming-velocity detector that is the Giant Fiber's strongest input.
+**What is learned (7,999 numbers against 149,232 fixed synapses):** 6,795 per-cell-type values (a global gain, send/receive gains, baselines and time constants) plus a 1,204-parameter readout from the descending neurons to the four actions. The connectome gives structure but no physiology, and no meaning for the output: training supplies those. Across seeds the two input cell types end up among the most amplified of 1,698 types (LC4 ranks 2nd–11th, LPLC2 3rd–42nd; `results/summary.json` → `input_type_gain_ranks`), which is suggestive but far from decisive.
 
 **Training data:** the wiring is real; the task episodes are generated (`flybrain/stimulus.py`). Each episode is 1.2 s at 60 fps with a threat from the left, front or right (or none), random approach speed, per-neuron gain jitter and noise. 9,600 episodes per run, never repeated.
 
@@ -71,7 +73,7 @@ MaleCNS connectome (31 GB)
 | `flybrain/` | Python: connectome I/O, circuit extraction, stimulus, rate model, training, evaluation, export, figures |
 | `web/` | browser app: bundle loader, live model, three.js scene, arena game, HUD (no build step, no npm deps) |
 | `web/assets/circuit_v1/` | the exported trained circuit |
-| `tests/`, `web/tests/` | 102 Python tests, 65 JS tests (including Python↔JS parity) |
+| `tests/`, `web/tests/` | 102 Python tests (88 fast + 14 needing the raw data), 65 JS tests including Python↔JS parity |
 | `docs/` | research notes with citations, figures, results |
 | `results/` | training metrics per run, calibration and evaluation summaries |
 
@@ -86,10 +88,10 @@ uv run python -m flybrain.positions    # 3D positions from synapses    (~20 s)
 uv run python -m flybrain.calibrate    # pick the operating point      (~3 min)
 ./scripts/run_training.sh              # 9 runs                        (~1 h, CPU)
 uv run python -m flybrain.evaluate     # held-out tests + controls
-uv run python -m flybrain.export --checkpoint results/runs/real_s2/ckpt_best.pt
+uv run python -m flybrain.export --checkpoint results/runs/real_s2/ckpt_best.pt   # needs internet: fetches the shell meshes
 
-uv run pytest          # 102 Python tests
-cd web && node --test  # 65 JS tests
+uv run pytest -m "not slow"   # 88 fast tests (the 14 slow ones need the raw dataset)
+cd web && node --test         # 65 JS tests
 ```
 
 ## Credits and licence
