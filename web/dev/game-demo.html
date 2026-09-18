@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Game and HUD demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../styles/tokens.css">
+  <link rel="stylesheet" href="../styles/app.css">
+  <style>
+    /* demo only: a faint stand-in for the 3D scene so the glass panels have something behind them */
+    #scene { background:
+      radial-gradient(40% 45% at 52% 46%, color-mix(in srgb, var(--glow-shell) 9%, transparent), transparent 70%),
+      radial-gradient(18% 22% at 47% 44%, color-mix(in srgb, var(--glow-excitatory) 6%, transparent), transparent 70%),
+      var(--bg); }
+    .freeze *, .freeze *::after { animation: none !important; transition: none !important; }
+    /* ?bright=1: a hot stand-in glow behind the decision panel, to check text contrast */
+    .bright #scene { background:
+      radial-gradient(34% 40% at 86% 82%, color-mix(in srgb, var(--glow-dn) 30%, transparent), transparent 75%),
+      radial-gradient(40% 45% at 52% 46%, color-mix(in srgb, var(--glow-shell) 9%, transparent), transparent 70%),
+      var(--bg); }
+    .demo-note { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); font: 400 11px var(--font-mono); color: var(--ink-2); }
+    @media (max-width: 1400px) { .demo-note { display: none; } }
+  </style>
+</head>
+<body>
+  <div id="scene" aria-hidden="true"></div>
+  <p class="demo-note">stub model · ?autoplay=1 · ?t=seconds · ?tooltip=1 · ?help=1 · ?bright=1 · ?lowq=1</p>
+  <header id="title"></header>
+  <nav id="controls"></nav>
+  <section id="game-panel" aria-label="Arena">
+    <canvas id="arena" width="300" height="300" aria-label="Arena: threats approaching the fly"></canvas>
+    <canvas id="vfield" width="300" height="28" aria-label="Visual field of both eyes"></canvas>
+  </section>
+  <section id="decision-panel"></section>
+  <div id="tooltip" role="tooltip" hidden></div>
+
+  <script type="module">
+    import { createGame } from "../game.js";
+    import { createHud } from "../hud.js";
+    import { createDecider } from "../decision.js";
+    import { loomAngleDeg, threatClass } from "../stimulus.js";
+    import { scoringThreat } from "../game-logic.js";
+
+    const manifest = await (await fetch("../assets/circuit_v1/manifest.json")).json();
+    const { classes, stimulus: stim, decision: rule, counts } = manifest;
+    const FPS = manifest.sim.fps;
+    const q = new URLSearchParams(location.search);
+    const freezeT = q.has("t") ? Number(q.get("t")) : null;
+    const autoplay = q.get("autoplay") === "1" || freezeT != null;
+    if (q.get("bright") === "1") document.documentElement.classList.add("bright");
+    if (q.get("lowq") === "1") document.body.classList.add("hud-lowq");
+
+    const $ = (id) => document.getElementById(id);
+    const game = createGame({ arena: $("arena"), vfield: $("vfield"), stim, classes, fps: FPS });
+    const hud = createHud(
+      { title: $("title"), controls: $("controls"), decisionPanel: $("decision-panel"), tooltip: $("tooltip") },
+      { classes, counts, decision: rule },
+    );
+    const decider = createDecider({ classes, p: rule.p, frames: rule.frames });
+
+    // ---- deterministic randomness so ?t= screenshots are reproducible
+    let seed = 7;
+    const rand = () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const gauss = () => Math.sqrt(-2 * Math.log(rand() + 1e-12)) * Math.cos(2 * Math.PI * rand());
+
+    // ---- stub model: probabilities drift toward the correct class of the largest unscored threat, with lag and noise
+    const probs = new Float64Array(classes.length); probs[0] = 1;
+    let noiseOn = false;
+    const keyOf = (th) => `${th.tSpawn}:${th.azimuthDeg}`;
+    const scored = new Set();
+    const belief = new Map(); // threat key → class the stub drifts toward (occasionally wrong, so ✗ shows up)
+    function stubStep(t) {
+      const th = scoringThreat(game.threats().filter((v) => !scored.has(keyOf(v))), t, 0.1);
+      let target = 0;
+      if (th) {
+        const k = keyOf(th);
+        if (!belief.has(k)) belief.set(k, rand() < 0.15 ? 1 + Math.floor(rand() * 3) : threatClass(th.azimuthDeg, stim));
+        target = belief.get(k);
+      }
+      const sd = noiseOn ? 0.06 : 0.02;
+      let sum = 0;
+      for (let i = 0; i < probs.length; i++) {
+        probs[i] = Math.max(0, probs[i] + 0.13 * ((i === target ? 1 : 0) - probs[i]) + sd * gauss());
+        sum += probs[i];
+      }
+      for (let i = 0; i < probs.length; i++) probs[i] /= sum || 1;
+    }
+
+    // main.js wiring, as in CONTRACT.md
+    game.onSpawn((th) => { decider.reset(); hud.showIncoming(th); });
+    game.onOutcome((o) => {
+      if (o.threat) scored.add(keyOf(o.threat));
+      hud.showDecision({ ...o, score: game.score() });
+    });
+
+    // ---- autoplay schedule
+    const script = [[0.3, -80, 0.04], [1.55, 70, 0.03], [2.8, 8, 0.04], [3.9, -120, 0.02], [5.0, 135, 0.05], [6.2, -20, 0.03]];
+    let scriptIdx = 0, nextAuto = 0;
+    function autoSpawn(t) {
+      if (!autoplay) return;
+      if (scriptIdx < script.length) {
+        if (t >= script[scriptIdx][0]) { const [, az, lv] = script[scriptIdx++]; game.spawn(az, lv); nextAuto = t + 1.4; }
+      } else if (t >= nextAuto) {
+        game.spawn(-180 + 360 * rand(), 0.02 + 0.04 * rand());
+        nextAuto = t + 1.0 + 0.9 * rand();
+      }
+    }
+
+    // ---- fixed-step sim
+    const dt = 1 / FPS;
+    let tSim = 0, paused = false, speed = 1, acc = 0, frame = 0;
+    function step() {
+      tSim = ++frame * dt;
+      autoSpawn(tSim);
+      game.tick(tSim);
+      stubStep(tSim);
+      const d = decider.update(probs);
+      if (d) game.resolve(d);
+      hud.setProbs(probs);
+    }
+
+    hud.onControl((name, arg) => {
+      if (name === "spawn") game.spawn(arg.azimuthDeg, arg.lv);
+      else if (name === "pause") paused = arg;
+      else if (name === "slowmo") speed = arg ? 0.25 : 1;
+      else if (name === "noise") noiseOn = arg;
+      else if (name === "reset") {
+        game.reset(); hud.resetDecision(); decider.reset(); probs.fill(0); probs[0] = 1; scored.clear(); belief.clear();
+      }
+    });
+
+    // hover anywhere on the backdrop shows a sample neuron, as the 3D pick would
+    const sample = [
+      { index: 17, type: "DNp01", instance: "DNp01_R", superclass: "descending_neuron", role: 2, layer: 3, sign: 1 },
+      { index: 3, type: "LPLC2", instance: "LPLC2_L", superclass: "visual_projection", role: 0, layer: 0, sign: 1 },
+      { index: 902, type: "CB0987", instance: "CB0987_R", superclass: "central", role: 1, layer: 2, sign: -1 },
+    ];
+    const tipInfo = (x, y) => ({ ...sample[Math.abs(Math.floor(x / 160 + y / 90)) % sample.length], activity: 1.2 + Math.sin(tSim * 3) * 0.9, rMax: manifest.sim.r_max });
+    $("scene").addEventListener("mousemove", (e) => hud.showTooltip(e.clientX, e.clientY, tipInfo(e.clientX, e.clientY)));
+    $("scene").addEventListener("mouseleave", () => hud.showTooltip(0, 0, null));
+
+    const activeCount = () => {
+      let m = 0; for (const th of game.threats()) m = Math.max(m, loomAngleDeg(tSim, th.lv, th.tCollision));
+      return Math.round(180 + 22 * Math.min(m, 120) + 30 * Math.abs(gauss()));
+    };
+
+    if (freezeT != null) {
+      document.documentElement.classList.add("freeze");
+      while (tSim + dt / 2 < freezeT) step();
+      game.draw(tSim);
+      document.fonts?.ready.then(() => game.draw(tSim));
+      hud.setStats({ fps: FPS, activeNeurons: activeCount() });
+      if (q.get("tooltip") === "1") hud.showTooltip(innerWidth * 0.55, innerHeight * 0.42, { ...sample[0], activity: 2.71, rMax: manifest.sim.r_max });
+      if (q.get("help") === "1") hud.toggleHelp(true);
+    } else {
+      if (q.get("help") === "1") hud.toggleHelp(true);
+      let last = performance.now(), fpsEma = FPS;
+      requestAnimationFrame(function loop(now) {
+        const real = Math.min((now - last) / 1000, 0.1); last = now;
+        fpsEma += (1 / Math.max(real, 1e-3) - fpsEma) * 0.05;
+        if (!paused) { acc += real * speed; let n = 0; while (acc >= dt && n++ < 4) { step(); acc -= dt; } if (n >= 4) acc = 0; }
+        game.draw(tSim);
+        hud.setStats({ fps: fpsEma, activeNeurons: activeCount() });
+        requestAnimationFrame(loop);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+layer,excitatory,inhibitory,no_output,total
+input LPLC2 + LC4,311,0,0,311
+hidden 1 hop,348,150,0,498
+hidden 2–3 hops,1715,1171,0,2886
+descending neurons,225,70,5,300
+motor neurons,1,103,197,301

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scene demo · fly circuit</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../styles/tokens.css">
+  <link rel="stylesheet" href="../styles/app.css">
+  <script type="importmap">
+    { "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    } }
+  </script>
+  <style>
+    /* dev-only readout, not part of the app */
+    .readout, .keys, .pickinfo { position: fixed; font: 12px/1.6 var(--font-mono); pointer-events: none; }
+    .readout { left: var(--gap); bottom: var(--gap); color: var(--ink-3); }
+    .readout b { color: var(--ink-2); font-weight: 500; }
+    .keys { right: var(--gap); bottom: var(--gap); color: var(--ink-3); text-align: right; }
+    .keys kbd { font: inherit; color: var(--ink-2); }
+    .pickinfo { top: var(--gap); left: var(--gap); color: var(--ink-2); }
+    .anchor { position: fixed; transform: translate(-50%, 0); font: 12px var(--font-mono); color: var(--ink-3); pointer-events: none; }
+    .shot .readout, .shot .keys, .shot .pickinfo, .shot .anchor { display: none; }
+  </style>
+</head>
+<body>
+  <div id="scene" aria-label="3D view of the fly brain circuit"></div>
+  <div class="pickinfo" id="pickinfo"></div>
+  <div class="readout" id="readout">loading bundle…</div>
+  <div class="keys">
+    <kbd>←</kbd> left loom · <kbd>↑</kbd> front · <kbd>→</kbd> right (or <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>)<br>
+    <kbd>L</kbd> layout · <kbd>B</kbd> bloom · <kbd>Q</kbd> quality
+  </div>
+  <script type="module">
+    import { loadBundle } from "../data.js";
+    import { createModel } from "../model.js";
+    import { inputDrive } from "../stimulus.js";
+    import { createDecider } from "../decision.js";
+    import { createScene } from "../scene.js";
+
+    // ---- page options for screenshots: ?shot=1&still=1&loom=1|2|3&at=seconds&layout=layers&bloom=0&quality=low
+    const q = new URLSearchParams(location.search);
+    if (q.get("shot")) document.body.classList.add("shot");
+
+    const bundle = await loadBundle("../assets/circuit_v1/");
+    const { manifest, N, ND, dnIdx, Wout, r0, inputKind, inputSide } = bundle;
+    const stim = manifest.stimulus, FPS = manifest.sim.fps, rMax = manifest.sim.r_max;
+    const scene = createScene(document.getElementById("scene"), bundle, {
+      quality: q.get("quality") || "high", bloom: q.get("bloom") !== "0", autoOrbit: !q.get("shot"),
+    });
+    window.__scene = scene;
+
+    // ---- the real exported model, driven by real looms ----
+    const model = createModel(bundle);
+    const decider = createDecider({ classes: manifest.classes, ...manifest.decision });
+    const drive = new Float64Array(bundle.NI);
+    const dnW = new Float32Array(ND);
+    const threats = [];
+    let simT = 0, lastDecision = "";
+    for (let k = 0; k < manifest.sim.warmup_frames; k++) model.step(drive);
+
+    const SIDES = { 1: { az: -50, flash: 1 }, 2: { az: 50, flash: 2 }, 3: { az: 0, flash: "both" } }; // 1 left · 2 right · 3 front
+    function loom(kind, lv = 0.04, approachS = 0.6) {
+      const s = SIDES[kind];
+      threats.push({ azimuthDeg: s.az, lv, tSpawn: simT, tCollision: simT + approachS });
+      decider.reset();
+      scene.flashInputs(s.flash);
+    }
+    function simFrame() {
+      simT += 1 / FPS;
+      for (let k = threats.length - 1; k >= 0; k--) if (simT > threats[k].tCollision + 0.5) threats.splice(k, 1);
+      inputDrive(simT, threats, inputKind, inputSide, stim, drive);
+      model.step(drive);
+      const d = decider.update(model.probs);
+      if (d) {
+        for (let j = 0; j < ND; j++) dnW[j] = Wout[d.classIndex * ND + j] * (model.r[dnIdx[j]] - r0[dnIdx[j]]);
+        scene.highlightDecision(d.classIndex, dnW);
+        lastDecision = `${d.name} @ ${simT.toFixed(2)} s`;
+        console.log(`[scene-demo] decision ${lastDecision}`);
+      }
+      scene.setActivity(model.r, rMax);
+    }
+
+    // ---- keys ----
+    addEventListener("keydown", (e) => {
+      if (e.repeat) return;
+      const k = e.key.toLowerCase();
+      if (k === "l") scene.setLayout(scene.getLayout() === "anatomy" ? "layers" : "anatomy");
+      else if (k === "b") scene.setBloom(!scene.getBloom());
+      else if (k === "q") scene.setQuality(scene.getQuality() === "high" ? "low" : "high");
+      else if (k === "arrowleft" || k === "1") loom(1, e.shiftKey ? 0.02 : 0.04);
+      else if (k === "arrowright" || k === "2") loom(2, e.shiftKey ? 0.02 : 0.04);
+      else if (k === "arrowup" || k === "3") loom(3, e.shiftKey ? 0.02 : 0.04);
+      else return;
+      e.preventDefault();
+    });
+    const pickinfo = document.getElementById("pickinfo");
+    scene.canvas.addEventListener("pointermove", (e) => {
+      const i = scene.pick(e.clientX, e.clientY);
+      pickinfo.textContent = i < 0 ? "" : `#${i}  ${bundle.info.types[bundle.typeId[i]]}  layer ${bundle.layer[i]}  r=${model.r[i].toFixed(3)}  rest=${r0[i].toFixed(3)}`;
+    });
+    addEventListener("resize", () => scene.resize());
+
+    // layer labels from layerAnchors() (what the HUD will do in the layers view)
+    const LABELS = ["input", "hidden 1", "hidden 2+", "descending", "motor"];
+    const anchorEls = LABELS.map((t) => Object.assign(document.body.appendChild(document.createElement("div")), { className: "anchor", textContent: t }));
+
+    // ---- screenshot staging: advance simulated + wall time synchronously ----
+    const advance = (sec) => { for (let t = 0; t < sec; t += 1 / FPS) { simFrame(); scene.render(1 / FPS); } };
+    advance(0.5);
+    if (q.get("layout") === "layers") { scene.setLayout("layers"); advance(1.4); }
+    if (q.get("loom")) { loom(+q.get("loom")); advance(+(q.get("at") || 0)); }
+
+    // ---- loop + frame-time log ----
+    const readout = document.getElementById("readout");
+    let last = performance.now(), acc = 0, cpu = 0, simMs = 0, frames = 0, autoT = 0, autoSide = 0, simAcc = 0;
+    const autoLoom = !q.get("shot") && !q.get("still");
+    function frame(now) {
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      const c0 = performance.now();
+      if (autoLoom && (autoT += dt) > 3.5) { autoT = 0; loom([1, 3, 2][autoSide++ % 3]); }
+      simAcc = Math.min(simAcc + dt, 3 / FPS);
+      const s0 = performance.now();
+      while (simAcc >= 1 / FPS) { simFrame(); simAcc -= 1 / FPS; }
+      simMs += performance.now() - s0;
+      scene.render(dt);
+      const anchors = scene.layerAnchors();
+      for (let L = 0; L < anchors.length; L++) {
+        const el = anchorEls[L], a = anchors[L];
+        el.style.left = `${a.x}px`; el.style.top = `${a.y}px`; el.style.opacity = a.opacity;
+      }
+      cpu += performance.now() - c0; acc += dt; frames++;
+      if (acc >= 2) {
+        const ms = (1000 * acc) / frames;
+        console.log(`[scene-demo] avg frame ${ms.toFixed(2)} ms (${(1000 / ms).toFixed(0)} fps), cpu ${(cpu / frames).toFixed(2)} ms, model ${(simMs / frames).toFixed(2)} ms`);
+        readout.innerHTML = `<b>${ms.toFixed(1)}</b> ms/frame · <b>${(1000 / ms).toFixed(0)}</b> fps · cpu ${(cpu / frames).toFixed(1)} ms (model ${(simMs / frames).toFixed(1)})<br>` +
+          `${scene.getLayout()} · bloom ${scene.getBloom() ? "on" : "off"} · quality ${scene.getQuality()} · last decision ${lastDecision || "–"}`;
+        acc = cpu = simMs = frames = 0;
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>

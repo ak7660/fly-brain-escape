@@ -1,0 +1,27 @@
+[project]
+name = "flybrain"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.3",
+    "pandas>=3.0.5",
+    "pyarrow>=25.0.1",
+    "pytest>=9.1.1",
+    "scipy>=1.18.1",
+    "torch>=2.14.0",
+    "trimesh>=5.1.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["slow: reads the real 31 GB MaleCNS dataset (minutes)"]

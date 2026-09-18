@@ -1,0 +1,313 @@
+{
+ "format": "flybrain-bundle",
+ "version": 1,
+ "variant": "real",
+ "source": {
+  "dataset": "MaleCNS v1.0 minconf-0.5 traced-only",
+  "circuit": {
+   "source_types": [
+    "LPLC2",
+    "LC4"
+   ],
+   "max_hops": 3,
+   "min_weight": 5,
+   "node_cap": 4000,
+   "mn_cap": 300,
+   "edge_cap": 150000,
+   "dn_cap": 300,
+   "n_dn_candidates": 1308,
+   "dn_cap_hit": true,
+   "n_dn_kept": 300,
+   "n_dn_no_chain": 0,
+   "n_path_nodes": 9775,
+   "node_cap_hit": true,
+   "n_relay_nodes": 23,
+   "n_zero_sign_edges_dropped": 801,
+   "n_edges_induced": 253993,
+   "edge_cap_hit": true,
+   "hidden_hidden_min_weight": 15,
+   "n_removed_unconnected": 5
+  }
+ },
+ "sim": {
+  "fps": 60,
+  "substeps": 4,
+  "dt_sub": 0.004166666666666667,
+  "r_max": 4.0,
+  "warmup_frames": 60
+ },
+ "stimulus": {
+  "input_kinds": [
+   "LPLC2",
+   "LC4"
+  ],
+  "rf_centers_deg": [
+   -45.0,
+   45.0
+  ],
+  "rf_sigma_deg": 50.0,
+  "theta_sat_deg": 90.0,
+  "thetadot_sat_dps": 1000.0,
+  "label_onset_deg": 15.0,
+  "front_half_width_deg": 45.0
+ },
+ "classes": [
+  "none",
+  "dodge_right",
+  "dodge_left",
+  "takeoff"
+ ],
+ "decision": {
+  "p": 0.7,
+  "frames": 3
+ },
+ "counts": {
+  "neurons": 4296,
+  "edges": 149232,
+  "inputs": 311,
+  "dn": 300,
+  "mn": 301,
+  "types": 1698,
+  "vis_edges": 50000,
+  "dust": 164403
+ },
+ "units": {
+  "world": "\u00b5m",
+  "axes": "X=\u2212x (fly left at \u2212X), Y=\u2212z (brain up), Z=\u2212y",
+  "centre_nm": [
+   387937.25,
+   299220.615234375,
+   578220.26953125
+  ],
+  "dust_scale_um": 0.025
+ },
+ "nt_policy": {
+  "acetylcholine": 1,
+  "gaba": -1,
+  "glutamate": -1,
+  "histamine": -1,
+  "other": 0
+ },
+ "params": {
+  "gain": 4.0,
+  "bias": 0.02,
+  "trained": true,
+  "checkpoint": "results/runs/real_s2/ckpt_best.pt"
+ },
+ "metrics": {
+  "run": "real_s2",
+  "heldout_accuracy": 1.0,
+  "false_alarm": 0.0,
+  "latency_ms_median": 299.99999999999994,
+  "bands": {
+   "fast": 1.0,
+   "trained": 1.0,
+   "slow": 1.0
+  },
+  "iters_to_90": 30
+ },
+ "viz": {
+  "role_ref": [
+   3.875525418692352,
+   1.2050359081918622,
+   2.232308767858166,
+   0.24384758099398784
+  ],
+  "role_ref_note": "p90 peak rise above rest per role (input, hidden, DN, motor) for L/F/R probe looms"
+ },
+ "files": {
+  "neurons.bin": {
+   "bytes": 103104,
+   "sha256": "d1759f3b6507bac423ef97c0e4f99a0ab5d18fb4e8cb5540e36bf1ad457b9688",
+   "layout": [
+    [
+     "pos",
+     "f32",
+     12888
+    ],
+    [
+     "bias",
+     "f32",
+     4296
+    ],
+    [
+     "alpha",
+     "f32",
+     4296
+    ],
+    [
+     "r0",
+     "f32",
+     4296
+    ]
+   ]
+  },
+  "neuron_meta.bin": {
+   "bytes": 25776,
+   "sha256": "054cf4a0e3ed558bd1bde322231c031f0143ee57bc46896548da69ce1e33cafc",
+   "layout": [
+    [
+     "layer",
+     "u8",
+     4296
+    ],
+    [
+     "role",
+     "u8",
+     4296
+    ],
+    [
+     "sign",
+     "i8",
+     4296
+    ],
+    [
+     "side",
+     "u8",
+     4296
+    ],
+    [
+     "type_id",
+     "u16",
+     4296
+    ]
+   ]
+  },
+  "csr.bin": {
+   "bytes": 1211044,
+   "sha256": "91be586b2e6edcea963fa830f2464f67bc488fa30ad99d709580446709e7d632",
+   "layout": [
+    [
+     "row_ptr",
+     "u32",
+     4297
+    ],
+    [
+     "col",
+     "u32",
+     149232
+    ],
+    [
+     "val",
+     "f32",
+     149232
+    ]
+   ]
+  },
+  "io.bin": {
+   "bytes": 9756,
+   "sha256": "fd19b0b2941644b6ebb2c6fada249c752774efc87310b61c0da8f715a7b94f41",
+   "layout": [
+    [
+     "input_idx",
+     "u32",
+     311
+    ],
+    [
+     "input_kind",
+     "u32",
+     311
+    ],
+    [
+     "input_side",
+     "u32",
+     311
+    ],
+    [
+     "input_gain",
+     "f32",
+     2
+    ],
+    [
+     "dn_idx",
+     "u32",
+     300
+    ],
+    [
+     "W_out",
+     "f32",
+     1200
+    ],
+    [
+     "b_out",
+     "f32",
+     4
+    ]
+   ]
+  },
+  "vis_edges.bin": {
+   "bytes": 200000,
+   "sha256": "bb8592c87adab129c9d8e7be3e7c936eafec6af3cb0cb69e691bc177f48b0784",
+   "layout": [
+    [
+     "edge_idx",
+     "u32",
+     50000
+    ]
+   ]
+  },
+  "dust.bin": {
+   "bytes": 986418,
+   "sha256": "46a0e9b99fe357f4d4c5c3a82eb203b0a12f0a00e9e14619653ef3a28397eb66",
+   "layout": [
+    [
+     "pos",
+     "i16",
+     493209
+    ]
+   ]
+  },
+  "shell_brain.bin": {
+   "bytes": 1189016,
+   "sha256": "3b2358cae7eaa355afb608476c81d44da0b7a3dccb401fd2de4d6699205e022b",
+   "layout": [
+    [
+     "n_verts",
+     "u32",
+     1
+    ],
+    [
+     "verts",
+     "f32",
+     98172
+    ],
+    [
+     "n_faces",
+     "u32",
+     1
+    ],
+    [
+     "faces",
+     "u32",
+     199080
+    ]
+   ]
+  },
+  "shell_vnc.bin": {
+   "bytes": 655916,
+   "sha256": "63c1ab162ec9b20d15da768ef4a0bd7ccd7a8337df6a49c50a6366f7595f9d73",
+   "layout": [
+    [
+     "n_verts",
+     "u32",
+     1
+    ],
+    [
+     "verts",
+     "f32",
+     54063
+    ],
+    [
+     "n_faces",
+     "u32",
+     1
+    ],
+    [
+     "faces",
+     "u32",
+     109914
+    ]
+   ]
+  }
+ }
+}

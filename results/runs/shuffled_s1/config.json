@@ -1,0 +1,15 @@
+{
+ "variant": "shuffled",
+ "seed": 1,
+ "shuffle_seed": 1001,
+ "calib": {
+  "gain": 4.0,
+  "bias": 0.02
+ },
+ "iters": 300,
+ "batch": 32,
+ "n_frames": 72,
+ "lr": 0.01,
+ "val_seed": 10000,
+ "val_n": 256
+}
