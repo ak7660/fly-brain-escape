@@ -2,6 +2,8 @@
 
 A real circuit from the fruit fly connectome, trained to escape looming threats and running live in your browser.
 
+**▶ Try it: https://ak7660.github.io/fly-brain-escape/** (add `?demo=1` for hands-free threats, `?present=1` for a larger HUD)
+
 4,296 neurons and 149,232 synapses were taken from the [MaleCNS v1.0 connectome](https://male-cns.janelia.org/) (HHMI Janelia + Google Research, released June 2026), wired exactly as they are in the fly: looming-detector neurons in the eyes → interneurons → descending neurons → motor neurons. The circuit is simulated as a signed rate network, trained on a small escape task, and then runs in the browser at 60 fps while you throw threats at it.
 
 ![the trained circuit deciding to take off](docs/figures/demo_takeoff.png)
