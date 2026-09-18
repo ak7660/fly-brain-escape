@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Model Selftest</title>
+  <link rel="stylesheet" href="../styles/tokens.css">
+  <style>
+    body { margin: 0; background: var(--bg); color: var(--ink-1); font-family: var(--font-sans); }
+    main { max-width: 640px; margin: 0 auto; padding: calc(var(--gap) * 2) var(--gap); }
+    h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 4px; }
+    .sub { color: var(--ink-3); font-size: 0.85rem; margin: 0 0 var(--gap); }
+    #verdict { font-family: var(--font-mono); font-size: 2.4rem; font-weight: 500; margin: var(--gap) 0; color: var(--ink-2); }
+    #verdict.pass { color: var(--glow-dn); }
+    #verdict.fail { color: var(--glow-inhibitory); }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px var(--gap); margin: 0;
+         padding: var(--gap); background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius); }
+    dt { color: var(--ink-2); font-size: 0.85rem; }
+    dd { margin: 0; font-family: var(--font-mono); font-size: 0.85rem; overflow-wrap: anywhere; }
+    #log { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-3); white-space: pre-wrap; margin-top: var(--gap); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Model parity selftest</h1>
+  <p class="sub">Replays tests/fixtures/parity_v1.json through data.js, stimulus.js and model.js in this browser.</p>
+  <div id="verdict" role="status">running…</div>
+  <dl id="stats"></dl>
+  <div id="log"></div>
+</main>
+<script type="module">
+  import { loadBundle } from "../data.js";
+  import { createModel } from "../model.js";
+  import { inputDrive } from "../stimulus.js";
+
+  const $ = (id) => document.getElementById(id);
+  const stat = (k, v) => $("stats").insertAdjacentHTML("beforeend", `<dt>${k}</dt><dd>${v}</dd>`);
+  const argmax = (a) => { let b = 0; for (let i = 1; i < a.length; i++) if (a[i] > a[b]) b = i; return b; };
+
+  try {
+    const [bundle, fx] = await Promise.all([
+      loadBundle("../assets/circuit_v1/"),
+      fetch("../tests/fixtures/parity_v1.json").then((r) => { if (!r.ok) throw new Error(`fixture: ${r.status}`); return r.json(); }),
+    ]);
+    const { fps, substeps } = bundle.manifest.sim;
+    const stim = bundle.manifest.stimulus;
+    const threats = fx.threats.map((t) => ({ azimuthDeg: t.azimuth_deg, lv: t.lv, tSpawn: t.t_spawn, tCollision: t.t_collision }));
+    const model = createModel(bundle);
+    const drive = new Float64Array(bundle.NI);
+    const err = { logits: 0, rates: 0, full: 0, argmax: 0 };
+    for (let f = 0; f < fx.frames; f++) {
+      inputDrive(f / fps, threats, bundle.inputKind, bundle.inputSide, stim, drive);
+      model.step(drive);
+      for (let c = 0; c < bundle.C; c++) err.logits = Math.max(err.logits, Math.abs(model.logits[c] - fx.logits[f][c]));
+      if (argmax(model.logits) !== argmax(fx.logits[f])) err.argmax++;
+      fx.sample_neurons.forEach((n, j) => (err.rates = Math.max(err.rates, Math.abs(model.r[n] - fx.rates_sampled[f][j]))));
+      const full = fx.rates_full[String(f)];
+      if (full) for (let i = 0; i < bundle.N; i++) err.full = Math.max(err.full, Math.abs(model.r[i] - full[i]));
+    }
+
+    // timing: warm up, then 600 frames over the same drive script
+    const drives = Array.from({ length: fx.frames }, (_, f) => inputDrive(f / fps, threats, bundle.inputKind, bundle.inputSide, stim));
+    model.reset();
+    for (let f = 0; f < 60; f++) model.step(drives[f % fx.frames]);
+    model.reset();
+    const t0 = performance.now();
+    for (let f = 0; f < 600; f++) model.step(drives[f % fx.frames]);
+    const ms = (performance.now() - t0) / 600;
+
+    const pass = err.argmax === 0 && err.logits <= fx.tolerance && err.rates <= fx.tolerance && err.full <= fx.tolerance;
+    $("verdict").textContent = pass ? "PASS" : "FAIL";
+    $("verdict").className = pass ? "pass" : "fail";
+    stat("bundle", `${fx.bundle} · N ${bundle.N} · E ${bundle.E} · substeps ${substeps}`);
+    stat("frames", fx.frames);
+    stat("tolerance", fx.tolerance.toExponential(0));
+    stat("max |Δ| logits", err.logits.toExponential(2));
+    stat("max |Δ| rates (sampled)", err.rates.toExponential(2));
+    stat("max |Δ| rates (full)", err.full.toExponential(2));
+    stat("argmax mismatches", err.argmax);
+    stat("model.step", `${ms.toFixed(3)} ms/frame`);
+    document.title = `Model Selftest: ${pass ? "PASS" : "FAIL"}`;
+  } catch (e) {
+    $("verdict").textContent = "FAIL";
+    $("verdict").className = "fail";
+    $("log").textContent = String(e && e.stack ? e.stack : e);
+  }
+</script>
+</body>
+</html>

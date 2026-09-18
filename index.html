@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fly Brain Escape</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/app.css">
+  <script type="importmap">
+    { "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <!-- layout owned by CONTRACT.md; each region is filled by exactly one module -->
+  <div id="scene" aria-label="3D view of the fly brain circuit"></div>
+  <header id="title"></header>          <!-- hud.js -->
+  <nav id="controls"></nav>             <!-- hud.js -->
+  <section id="game-panel">             <!-- game.js -->
+    <canvas id="arena" width="300" height="300" aria-label="Arena: threats approaching the fly"></canvas>
+    <canvas id="vfield" width="300" height="28" aria-label="Visual field of both eyes"></canvas>
+  </section>
+  <section id="decision-panel"></section> <!-- hud.js -->
+  <div id="tooltip" role="tooltip" hidden></div> <!-- hud.js -->
+  <script type="module" src="main.js"></script>
+</body>
+</html>
