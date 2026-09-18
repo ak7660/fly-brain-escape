@@ -4,10 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fly Brain Escape</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <!-- ?present=1 enlarges the whole interface for a projector; applied before the first paint so nothing jumps -->
+  <script>if (new URLSearchParams(location.search).get("present") === "1") document.documentElement.style.setProperty("--font-scale", "1.25");</script>
   <link rel="stylesheet" href="styles/tokens.css">
   <link rel="stylesheet" href="styles/app.css">
+  <!-- the webfonts must never hold up the first paint: the boot block below renders in the fallback face
+       and main.js waits for document.fonts.ready in parallel with the bundle download -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
   <script type="importmap">
     { "imports": {
         "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
@@ -15,16 +22,26 @@
     } }
   </script>
 </head>
-<body>
+<body class="is-booting">
   <!-- layout owned by CONTRACT.md; each region is filled by exactly one module -->
-  <div id="scene" aria-label="3D view of the fly brain circuit"></div>
-  <header id="title"></header>          <!-- hud.js -->
+  <div id="scene"></div>
+  <!-- #title carries the boot state so the page has a heading and a progress bar on the first paint,
+       before any module loads; hud.js replaces its contents once the bundle has arrived. -->
+  <header id="title" class="hud-titleblock">
+    <h1 class="hud-title">Drosophila · Male CNS · Looming escape</h1>
+    <p class="boot-line"><span id="boot-label">Loading 4,296 neurons…</span><b class="boot-pct" data-boot-pct></b></p>
+    <!-- indeterminate until the first byte of the bundle lands (the three.js module graph loads first) -->
+    <div class="boot-bar is-indeterminate" role="progressbar" aria-labelledby="boot-label" aria-valuemin="0" aria-valuemax="100" data-boot-bar>
+      <i data-boot-fill></i>
+    </div>
+  </header>
   <nav id="controls"></nav>             <!-- hud.js -->
-  <section id="game-panel">             <!-- game.js -->
-    <canvas id="arena" width="300" height="300" aria-label="Arena: threats approaching the fly"></canvas>
-    <canvas id="vfield" width="300" height="28" aria-label="Visual field of both eyes"></canvas>
+  <section id="game-panel" aria-label="Arena"> <!-- game.js -->
+    <canvas id="arena" width="300" height="300" role="img" aria-label="Arena: threats approaching the fly"></canvas>
+    <canvas id="vfield" width="300" height="28" role="img" aria-label="Visual field of both eyes"></canvas>
   </section>
   <section id="decision-panel"></section> <!-- hud.js -->
+  <div id="layer-labels" aria-hidden="true"></div> <!-- hud.js, positioned from scene.layerAnchors() -->
   <div id="tooltip" role="tooltip" hidden></div> <!-- hud.js -->
   <script type="module" src="main.js"></script>
 </body>

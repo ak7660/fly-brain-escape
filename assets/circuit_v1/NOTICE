@@ -1,0 +1,11 @@
+This directory contains data derived from the Drosophila MaleCNS v1.0 connectome.
+
+Source:  HHMI Janelia Research Campus (FlyEM) with Google Research, the University of Cambridge
+         and the MRC Laboratory of Molecular Biology — https://male-cns.janelia.org/
+Licence: CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+
+Derived here: a 4,296-neuron subgraph (synapse counts, predicted neurotransmitter signs, neuron types
+and synapse-centroid positions) plus brain and ventral-nerve-cord surface meshes, re-encoded as binary
+arrays. Trained parameters folded into csr.bin are this project's own (MIT, see ../../../LICENSE).
+
+If you redistribute this directory, keep this notice.

@@ -73,7 +73,7 @@ test("tiny hand-built bundle matches a naive dense reference (per-kind gain, per
   for (let frame = 0; frame < 25; frame++) {
     const drive = [0.7 * Math.sin(frame / 3) + 0.4, 0.9 * ((frame % 5) / 4)];
     m.step(Float64Array.from(drive));
-    // reference: independent dense loops, straight from the CLAUDE.md frame contract
+    // reference: independent dense loops, straight from the docs/model-contract.md frame contract
     const u = [0, 0, 0, 0];
     for (let j = 0; j < tb.NI; j++) u[tb.inputIdx[j]] = f32([2.0, 0.5][tb.inputKind[j]]) * drive[j];
     for (let s = 0; s < 3; s++) {
@@ -113,7 +113,7 @@ test("parity: logits, argmax, sampled and full rates match the fixture on every 
   const err = replay(createModel(bundle));
   console.log(`  parity max |err|: logits ${err.logits.toExponential(2)}, rates_sampled ${err.rates.toExponential(2)}, rates_full ${err.ratesFull.toExponential(2)}`);
   assert.deepEqual(err.argmaxMismatch, [], "argmax differs on these frames");
-  // fx.tolerance (1e-3) is about the size of the logits themselves (~5e-3); the fixture keeps 7 significant digits,
+  // fx.tolerance (1e-3) is far looser than the measured error (~2e-14); the fixture keeps 7 significant digits,
   // so hold the JS port much tighter than the cross-implementation tolerance.
   assert.ok(err.logits <= Math.min(fx.tolerance, 1e-6), `logits max err ${err.logits}`);
   assert.ok(err.rates <= Math.min(fx.tolerance, 1e-5), `rates_sampled max err ${err.rates}`);
